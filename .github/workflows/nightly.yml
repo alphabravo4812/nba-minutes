@@ -1,0 +1,42 @@
+name: NBA halftime minutes alerts
+
+on:
+  schedule:
+    # Main run: starts before the usual 7 PM ET tip-offs (6:30 PM EDT / 5:30 PM EST).
+    - cron: "30 22 * * *"
+    # Late run: queued behind the main run and covers West Coast halftimes.
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+
+# Runs go one at a time, so the late run starts only after the main run stops.
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  alerts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright and Chromium
+        run: |
+          pip install playwright==1.64.1
+          python -m playwright install --with-deps chromium
+
+      - name: Write BettingPros sign-in
+        env:
+          BP_STATE: ${{ secrets.BP_STATE }}
+        run: printf '%s' "$BP_STATE" > "$RUNNER_TEMP/bp_state.json"
+
+      - name: Pull projections and alert at halftime
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          BP_STATE_FILE: ${{ runner.temp }}/bp_state.json
+        # Stops cleanly after ~5 hours so the job never hits GitHub's 6-hour cap.
+        run: python bp_nightly.py --max-minutes 300
